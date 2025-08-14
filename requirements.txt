@@ -1,6 +1,35 @@
-Flask
-openai
-gTTS
-python-dotenv
-requests
-google-generativeai
+# Flask Framework
+Flask==3.0.3
+Werkzeug==3.0.3
+Jinja2==3.1.4
+MarkupSafe==2.1.5
+itsdangerous==2.2.0
+click==8.1.7
+
+# Database and User Authentication
+Flask-SQLAlchemy==3.1.1
+SQLAlchemy==2.0.31
+Flask-Login==0.6.3
+
+# Web Forms
+Flask-WTF==1.2.1
+WTForms==3.1.2
+
+# Environment Variables
+python-dotenv==1.0.1
+
+# AI and Text-to-Speech
+openai==1.35.13
+google-generativeai==0.7.2
+gTTS==2.5.1
+
+# HTTP Requests (often a dependency of other libraries)
+requests==2.32.3
+charset-normalizer==3.3.2
+idna==3.7
+urllib3==2.2.2
+certifi==2024.7.4
+
+# Other common dependencies for the above packages
+blinker==1.8.2
+typing-extensions==4.12.2
