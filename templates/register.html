@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <!-- Add styles similar to your profile.html for consistency -->
+    <title>Register - AI Assistant</title>
+     <link rel="stylesheet" href="{{ url_for('static', filename='css/login_style.css') }}">
+</head>
+
+<body>
+    <div class="auth-container">
+        <form method="POST" action="">
+    <div class="profile-container">
+        <h1>Create Account</h1>
+        <form method="POST" action="">
+            {{ form.hidden_tag() }}
+            <div class="form-group">
+                {{ form.username.label }}
+                {{ form.username(class="form-control") }}
+            </div>
+            <div class="form-group">
+                {{ form.email.label }}
+                {{ form.email(class="form-control") }}
+            </div>
+            <div class="form-group">
+                {{ form.password.label }}
+                {{ form.password(class="form-control") }}
+            </div>
+            <div class="form-group">
+                {{ form.confirm_password.label }}
+                {{ form.confirm_password(class="form-control") }}
+            </div>
+            <div class="form-group">
+                {{ form.submit(class="btn btn-primary") }}
+            </div>
+        </form>
+        <div class="links">
+             <a href="{{ url_for('login') }}">Already have an account? Log In</a>
+        </div>
+    </div>
+    </div>
+    </form>
+</body>
+</html>

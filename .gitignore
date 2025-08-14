@@ -1,0 +1,10 @@
+# Secret environment variables
+.env
+
+# Python virtual environment
+muskan/
+venv/
+
+# Python cache
+__pycache__/
+*.pyc
