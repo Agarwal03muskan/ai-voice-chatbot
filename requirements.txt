@@ -19,9 +19,18 @@ WTForms==3.1.2
 python-dotenv==1.0.1
 
 # AI and Text-to-Speech
-openai==1.35.13
 google-generativeai==0.7.2
 gTTS==2.5.1
+# Note: openai is not used in the provided code, but kept here as listed
+openai==1.35.13
+
+# Image Manipulation
+Pillow==10.4.0                  # <-- MISSING: Required for meme generation
+opencv-python-headless==4.9.0.80 # for image to sketch conversion
+numpy==1.26.4
+
+# For Google Search Results via SerpApi
+google-search-results==2.4.2
 
 # HTTP Requests (often a dependency of other libraries)
 requests==2.32.3

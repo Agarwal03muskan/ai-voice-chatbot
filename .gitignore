@@ -2,9 +2,19 @@
 .env
 
 # Python virtual environment
-muskan/
+
 venv/
 
 # Python cache
 __pycache__/
 *.pyc
+
+# Flask instance folder and local database
+instance/
+site.db
+
+# User-generated media folders
+static/audio/
+static/memes/
+static/sketches/
+static/uploads/
