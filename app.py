@@ -4,19 +4,28 @@ import os
 import json
 import base64
 import requests
+import uuid
+import io
+
+from datetime import datetime, timedelta
+from apscheduler.schedulers.background import BackgroundScheduler 
 from flask import Flask, render_template, request, jsonify, flash, redirect, url_for, Response
-from dotenv import load_dotenv # <-- THIS IS THE FIX. ADD THIS LINE.
+from dotenv import load_dotenv
 from flask_login import LoginManager, login_user, logout_user, current_user, login_required
 import google.generativeai as genai
 from urllib.parse import urlparse, parse_qs
 from werkzeug.utils import secure_filename
+from PIL import Image
+import pillow_heif
+import click  # Flask's command-line interface library
 
+# Correctly import db, User, and History from the models file
 from models import db, User, History
 from forms import RegistrationForm, LoginForm, UpdateAccountForm
 from utils.gemini_answer import (
-    get_gemini_answer, search_for_image_on_pexels, search_for_video_on_pexels,
-    search_for_image_on_google, search_for_video_on_youtube, search_for_gif_on_giphy,
-    get_meme_suggestion, google_search_for_answer, generate_conversational_answer
+    get_gemini_answer, get_meme_suggestion, google_search_for_answer, 
+    generate_conversational_answer, search_for_image_on_google, 
+    search_for_video_on_youtube, search_for_gif_on_giphy
 )
 from utils.text_to_speech import convert_text_to_speech
 from utils.sketch_generator import generate_sketch
@@ -29,10 +38,53 @@ app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'a-very-secret-key-for-dev')
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///site.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
+# Initialize the db object with the app
 db.init_app(app)
+
 login_manager = LoginManager(app)
 login_manager.login_view = 'login'
 login_manager.login_message_category = 'info'
+
+in_memory_audio_store = {}
+
+# --- NEW: DATABASE CREATION COMMAND ---
+@app.cli.command("init-db")
+def init_db_command():
+    """Clears existing data and creates new tables."""
+    db.create_all()
+    click.echo("Initialized the database.")
+
+def delete_old_history():
+    """A function that runs in the background to delete old history."""
+    with app.app_context():
+        cutoff_date = datetime.utcnow() - timedelta(days=15)
+        old_records = History.query.filter(History.date_posted < cutoff_date).all()
+        
+        if old_records:
+            print(f"[{datetime.now()}] Deleting {len(old_records)} records older than {cutoff_date}...")
+            for record in old_records:
+                db.session.delete(record)
+            db.session.commit()
+            print("Cleanup complete.")
+        else:
+            print(f"[{datetime.now()}] No old history records to delete.")
+
+def process_uploaded_image(file_storage):
+    filename = secure_filename(file_storage.filename)
+    file_storage.seek(0)
+    if filename.lower().endswith(('.heic', '.heif')):
+        try:
+            pillow_heif.register_heif_opener()
+            image = Image.open(file_storage).convert("RGB")
+            buffer = io.BytesIO()
+            image.save(buffer, format="JPEG")
+            return buffer.getvalue(), ".jpg"
+        except Exception as e:
+            print(f"Error converting HEIC in memory: {e}")
+            return None, None
+    else:
+        _, ext = os.path.splitext(filename)
+        return file_storage.read(), ext
 
 @login_manager.user_loader
 def load_user(user_id):
@@ -59,6 +111,7 @@ def index():
     user_history = History.query.filter_by(user_id=current_user.id).order_by(History.id.desc()).all()
     return render_template('index.html', history=user_history)
 
+# ... (All other @app.route functions are correct and unchanged) ...
 @app.route('/favicon.ico')
 def favicon():
     return '', 204
@@ -75,26 +128,29 @@ def stream_video(encoded_url):
         print(f"Error streaming video: {e}")
         return "Failed to stream video.", 500
 
+@app.route('/stream-audio/<audio_id>')
+@login_required
+def stream_audio(audio_id):
+    audio_data = in_memory_audio_store.get(audio_id)
+    if audio_data:
+        in_memory_audio_store.pop(audio_id, None)
+        return Response(audio_data, mimetype='audio/mpeg')
+    else:
+        return "Audio not found.", 404
+
 @app.route('/process-text', methods=['POST'])
 @login_required
 def process_text_route():
     data = request.get_json()
     user_text = data['text_input']
     conversation_history = data.get('history', [])
-    db_id = data.get('db_id')  # Use this ID to find the conversation in the DB
-
+    db_id = data.get('db_id')
     response_data = {}
     answer_for_db = ""
     status_code = 200
-
     gemini_response = get_gemini_answer(user_text)
     intent = gemini_response.get("intent")
     content = gemini_response.get("content")
-
-    audio_dir = os.path.join(app.static_folder, "audio")
-    os.makedirs(audio_dir, exist_ok=True)
-    response_audio_filename = f"response_{current_user.id}_{os.urandom(4).hex()}.mp3"
-    response_audio_path = os.path.join(audio_dir, response_audio_filename)
 
     if intent == "fact_check":
         model_response = google_search_for_answer(content, conversation_history)
@@ -121,23 +177,22 @@ def process_text_route():
         status_code = 400
 
     summary_for_speech = (answer_for_db.split('.')[0] + '.') if '.' in answer_for_db else answer_for_db
-    convert_text_to_speech(summary_for_speech, response_audio_path)
-    audio_url = url_for('static', filename=f'audio/{response_audio_filename}')
+    audio_bytes = convert_text_to_speech(summary_for_speech)
+
+    if audio_bytes:
+        audio_id = str(uuid.uuid4())
+        in_memory_audio_store[audio_id] = audio_bytes
+        audio_url = url_for('stream_audio', audio_id=audio_id)
+        response_data["audio_url"] = audio_url
+    else:
+        response_data["audio_url"] = None
+
     response_data["text_response"] = answer_for_db
-    response_data["audio_url"] = audio_url
 
     if answer_for_db and status_code == 200:
-        full_conversation = conversation_history + [
-            {"role": "user", "parts": [{"text": user_text}]},
-            {"role": "model", "parts": [{"text": answer_for_db}]}
-        ]
-        
+        full_conversation = conversation_history + [{"role": "user", "parts": [{"text": user_text}]}, {"role": "model", "parts": [{"text": answer_for_db}]}]
         if not db_id:
-            new_log = History(
-                question=user_text,
-                answer=json.dumps(full_conversation),
-                author=current_user
-            )
+            new_log = History(question=user_text, answer=json.dumps(full_conversation), author=current_user)
             db.session.add(new_log)
             db.session.commit()
             response_data['db_id'] = new_log.id
@@ -146,21 +201,17 @@ def process_text_route():
             if existing_log and existing_log.user_id == current_user.id:
                 existing_log.answer = json.dumps(full_conversation)
                 db.session.commit()
-
     return jsonify(response_data), status_code
 
 @app.route('/delete-history/<int:history_id>', methods=['POST'])
 @login_required
 def delete_history(history_id):
     history_item = db.session.get(History, history_id)
-    if history_item:
-        if history_item.user_id == current_user.id:
-            db.session.delete(history_item)
-            db.session.commit()
-            return jsonify({'success': True, 'message': 'History deleted.'})
-        else:
-            return jsonify({'success': False, 'message': 'Unauthorized'}), 403
-    return jsonify({'success': False, 'message': 'History item not found'}), 404
+    if history_item and history_item.user_id == current_user.id:
+        db.session.delete(history_item)
+        db.session.commit()
+        return jsonify({'success': True, 'message': 'History deleted.'})
+    return jsonify({'success': False, 'message': 'Item not found or unauthorized.'}), 404
 
 @app.route('/upload-image', methods=['POST'])
 @login_required
@@ -168,16 +219,21 @@ def upload_image_route():
     if 'image' not in request.files: return jsonify({'error': 'No image file provided'}), 400
     file = request.files['image']
     if file.filename == '': return jsonify({'error': 'No image selected'}), 400
+
     if file:
-        upload_folder = os.path.join(app.static_folder, 'uploads')
+        image_bytes, ext = process_uploaded_image(file)
+        if not image_bytes:
+            return jsonify({'error': 'Failed to process image file.'}), 500
+
         sketch_folder = os.path.join(app.static_folder, 'sketches')
-        os.makedirs(upload_folder, exist_ok=True)
         os.makedirs(sketch_folder, exist_ok=True)
-        unique_filename = f"{current_user.id}_{os.urandom(8).hex()}_{secure_filename(file.filename)}"
-        input_path = os.path.join(upload_folder, unique_filename)
-        file.save(input_path)
+        
+        base_name, _ = os.path.splitext(secure_filename(file.filename))
+        unique_filename = f"{current_user.id}_{os.urandom(8).hex()}_{base_name}{ext}"
         output_path = os.path.join(sketch_folder, unique_filename)
-        success = generate_sketch(input_path, output_path)
+        
+        success = generate_sketch(image_bytes, output_path)
+        
         if success:
             sketch_url = url_for('static', filename=f'sketches/{unique_filename}')
             return jsonify({'sketch_url': sketch_url})
@@ -192,16 +248,21 @@ def generate_meme_route():
     top_text = request.form.get('top_text', '')
     bottom_text = request.form.get('bottom_text', '')
     if file.filename == '': return jsonify({'error': 'No image selected'}), 400
+
     if file:
-        upload_folder = os.path.join(app.static_folder, 'uploads')
+        image_bytes, ext = process_uploaded_image(file)
+        if not image_bytes:
+            return jsonify({'error': 'Failed to process image file.'}), 500
+            
         meme_folder = os.path.join(app.static_folder, 'memes')
-        os.makedirs(upload_folder, exist_ok=True)
         os.makedirs(meme_folder, exist_ok=True)
-        unique_filename = f"{current_user.id}_{os.urandom(8).hex()}_{secure_filename(file.filename)}"
-        input_path = os.path.join(upload_folder, unique_filename)
-        file.save(input_path)
+
+        base_name, _ = os.path.splitext(secure_filename(file.filename))
+        unique_filename = f"{current_user.id}_{os.urandom(8).hex()}_{base_name}{ext}"
         output_path = os.path.join(meme_folder, unique_filename)
-        success = generate_meme(input_path, output_path, top_text, bottom_text)
+
+        success = generate_meme(image_bytes, output_path, top_text, bottom_text)
+
         if success:
             meme_url = url_for('static', filename=f'memes/{unique_filename}')
             return jsonify({'meme_url': meme_url})
@@ -214,8 +275,12 @@ def suggest_meme_text_route():
     if 'image' not in request.files: return jsonify({'error': 'No image file provided'}), 400
     file = request.files['image']
     if file.filename == '': return jsonify({'error': 'No image selected'}), 400
+
     if file:
-        image_bytes = file.read()
+        image_bytes, _ = process_uploaded_image(file)
+        if not image_bytes:
+            return jsonify({'error': 'Could not process image for suggestion.'}), 500
+            
         success, suggestion = get_meme_suggestion(image_bytes)
         if success:
             return jsonify(suggestion)
@@ -280,7 +345,7 @@ def edit_profile():
         form.email.data = current_user.email
     return render_template('edit_profile.html', title='Edit Profile', form=form)
 
-if __name__ == '__main__':
-    with app.app_context():
-        db.create_all()
-    app.run(debug=True, port=5001)
+# --- START THE SCHEDULER ---
+scheduler = BackgroundScheduler(daemon=True)
+scheduler.add_job(delete_old_history, 'interval', hours=24)
+scheduler.start()
