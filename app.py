@@ -81,13 +81,9 @@ def init_db():
                 print(f"Failed to create database file: {e2}")
                 raise
 
-# Initialize the database before first request
-@app.before_first_request
-def initialize_database():
-    init_db()
-
 # Initialize the database when the app starts
-init_db()
+with app.app_context():
+    init_db()
 
 login_manager = LoginManager(app)
 login_manager.login_view = 'login'
