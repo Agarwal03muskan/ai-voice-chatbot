@@ -36,13 +36,27 @@ load_dotenv()
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'a-very-secret-key-for-dev')
 # Use environment variable for database URL with fallback to SQLite
-app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'sqlite:///instance/site.db')
-# Ensure the instance folder exists
-os.makedirs('instance', exist_ok=True)
+instance_path = os.path.join(app.root_path, 'instance')
+os.makedirs(instance_path, exist_ok=True)
+
+# Set SQLite database URI
+app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get(
+    'DATABASE_URL', 
+    f'sqlite:///{os.path.join(instance_path, "site.db")}'
+)
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 # Initialize the db object with the app
 db.init_app(app)
+
+def init_db():
+    with app.app_context():
+        # Create all database tables
+        db.create_all()
+        print("Database tables created successfully")
+
+# Initialize the database
+init_db()
 
 login_manager = LoginManager(app)
 login_manager.login_view = 'login'
