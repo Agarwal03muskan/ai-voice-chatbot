@@ -22,7 +22,7 @@ def generate_conversational_answer(query: str, history: list):
         # We now directly configure the API key. This is safe and idempotent.
         genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
         
-        model = genai.GenerativeModel('models/gemini-1.5-flash-latest')
+        model = genai.GenerativeModel('models/gemini-robotics-er-1.5-preview')
         
         # Start a chat session with the provided history
         chat = model.start_chat(history=history)
@@ -85,7 +85,7 @@ def get_meme_suggestion(image_bytes):
         Example response:
         {"top_text": "WHEN YOU SEE THE WAITER", "bottom_text": "COMING WITH YOUR FOOD"}
         """
-        model = genai.GenerativeModel('gemini-1.5-flash-latest')
+        model = genai.GenerativeModel('models/learnlm-2.0-flash-experimental')
         response = model.generate_content([prompt, image_part])
         cleaned_response = response.text.strip().replace("```json", "").replace("```", "").strip()
         suggestion = json.loads(cleaned_response)
@@ -143,6 +143,7 @@ def search_for_image_on_google(query):
         print(f"SerpApi Error: {e}")
         return None, "Error connecting to specific image search."
 
+
 def search_for_image_on_pexels(query):
     """Searches for a generic photo on Pexels."""
     try:
@@ -160,6 +161,7 @@ def search_for_image_on_pexels(query):
     except Exception as e:
         print(f"Pexels API Error: {e}")
         return None, "Error connecting to the photo service."
+
 
 def search_for_video_on_youtube(query: str):
     """
@@ -227,6 +229,7 @@ def search_for_video_on_pexels(query):
         print(f"Pexels Video API Error: {e}")
         return None, "Error connecting to the video service."
 
+
 # The Main AI Brain
 def get_gemini_answer(text_input):
     """
@@ -236,7 +239,7 @@ def get_gemini_answer(text_input):
     try:
         genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
         
-        model = genai.GenerativeModel('models/gemini-1.5-flash-latest')
+        model = genai.GenerativeModel('models/gemini-robotics-er-1.5-preview')
         
         prompt = f"""
         Analyze the user's request. Respond with ONLY a valid JSON object.

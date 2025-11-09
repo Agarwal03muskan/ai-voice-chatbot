@@ -47,19 +47,40 @@ window.addEventListener('load', () => {
     // Function to load a session from sessionStorage on page load
     const loadSession = () => {
         const savedSession = sessionStorage.getItem('genivus_session');
-        if (savedSession) {
+        if (!savedSession) return;
+
+        try {
             const sessionData = JSON.parse(savedSession);
             conversationHistory = sessionData.history || [];
             currentDbId = sessionData.db_id || null;
 
-            if (conversationHistory.length > 0) {
-                if (welcomeMessage) welcomeMessage.style.display = 'none';
-                mainConversationContainer.innerHTML = ''; // Clear container before rendering
-                conversationHistory.forEach(turn => {
+            if (conversationHistory.length === 0) return;
+
+            // Clear the container
+            mainConversationContainer.innerHTML = '';
+            
+            // Show the conversation
+            if (welcomeMessage) welcomeMessage.style.display = 'none';
+
+            // Render each turn
+            conversationHistory.forEach(turn => {
+                if (turn.role && turn.parts && turn.parts[0] && turn.parts[0].text) {
                     renderTurn(turn.role, turn.parts[0].text);
-                });
-                mainConversationContainer.appendChild(typingIndicator); // Re-add typing indicator
-            }
+                }
+            });
+
+            // Add the typing indicator at the end
+            const typingIndicator = document.createElement('div');
+            typingIndicator.className = 'typing-indicator';
+            typingIndicator.style.display = 'none';
+            mainConversationContainer.appendChild(typingIndicator);
+
+        } catch (e) {
+            console.error('Error loading session:', e);
+            // Clear invalid session
+            sessionStorage.removeItem('genivus_session');
+            conversationHistory = [];
+            currentDbId = null;
         }
     };
 
@@ -200,17 +221,25 @@ window.addEventListener('load', () => {
     }
     
     function renderTurn(role, text) {
-        // ... (no changes in this function)
+        if (!mainConversationContainer) {
+            console.error('Main conversation container not found');
+            return;
+        }
+
         const turnDiv = document.createElement('div');
+        turnDiv.className = `chat-turn ${role}-turn`;
+        
         if (role === 'user') {
-            turnDiv.className = 'chat-turn user-turn';
             turnDiv.textContent = text;
-        } else { // 'model'
-            turnDiv.className = 'chat-turn ai-turn';
+        } else {
             turnDiv.innerHTML = markdownConverter.makeHtml(text);
         }
-        mainConversationContainer.insertBefore(turnDiv, typingIndicator);
 
+        // Always append to the container
+        mainConversationContainer.appendChild(turnDiv);
+
+        // Auto-scroll to the new message
+        turnDiv.scrollIntoView({ behavior: 'smooth' });
     }
 
     function startNewChat() {
