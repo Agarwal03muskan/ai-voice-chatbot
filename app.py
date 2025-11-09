@@ -35,27 +35,58 @@ load_dotenv()
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'a-very-secret-key-for-dev')
-# Use environment variable for database URL with fallback to SQLite
+# Configure SQLite database
 instance_path = os.path.join(app.root_path, 'instance')
 os.makedirs(instance_path, exist_ok=True)
 
-# Set SQLite database URI
-app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get(
-    'DATABASE_URL', 
-    f'sqlite:///{os.path.join(instance_path, "site.db")}'
-)
+# Use absolute path for SQLite to avoid issues with working directory
+sqlite_path = os.path.join(instance_path, 'site.db')
+app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{sqlite_path}'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+
+# Ensure the database file exists
+if not os.path.exists(sqlite_path):
+    open(sqlite_path, 'a').close()
+    print(f"Created SQLite database at {sqlite_path}")
 
 # Initialize the db object with the app
 db.init_app(app)
 
 def init_db():
     with app.app_context():
-        # Create all database tables
-        db.create_all()
-        print("Database tables created successfully")
+        try:
+            # Create all database tables
+            db.create_all()
+            print("Database tables created successfully")
+            
+            # Create a test user if none exists
+            if not User.query.filter_by(email='test@example.com').first():
+                user = User(username='test', email='test@example.com')
+                user.set_password('test123')
+                db.session.add(user)
+                db.session.commit()
+                print("Created test user")
+                
+        except Exception as e:
+            print(f"Error initializing database: {e}")
+            # If there's an error, try to create the database file directly
+            try:
+                db_path = os.path.join(instance_path, 'site.db')
+                if not os.path.exists(db_path):
+                    open(db_path, 'a').close()
+                    print(f"Created empty database at {db_path}")
+                    # Try creating tables again
+                    db.create_all()
+            except Exception as e2:
+                print(f"Failed to create database file: {e2}")
+                raise
 
-# Initialize the database
+# Initialize the database before first request
+@app.before_first_request
+def initialize_database():
+    init_db()
+
+# Initialize the database when the app starts
 init_db()
 
 login_manager = LoginManager(app)
