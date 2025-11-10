@@ -35,76 +35,86 @@ load_dotenv()
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'a-very-secret-key-for-dev')
 
-# CORRECTED: Use DATABASE_URL from environment variable (provided by Render)
+# Database Configuration
 database_url = os.getenv('DATABASE_URL')
-if database_url and database_url.startswith('postgres://'):
-    # Render uses postgres://, but SQLAlchemy needs postgresql://
-    database_url = database_url.replace('postgres://', 'postgresql://', 1)
-
-app.config['SQLALCHEMY_DATABASE_URI'] = database_url or 'sqlite:///instance/site.db'
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-
-# Only create instance folder if using SQLite locally
-if not database_url:
+if database_url:
+    # Render uses postgres://, but SQLAlchemy 1.4+ needs postgresql://
+    if database_url.startswith('postgres://'):
+        database_url = database_url.replace('postgres://', 'postgresql://', 1)
+    app.config['SQLALCHEMY_DATABASE_URI'] = database_url
+else:
+    # Local SQLite fallback
     instance_path = os.path.join(app.root_path, 'instance')
     os.makedirs(instance_path, exist_ok=True)
-    sqlite_path = os.path.join(instance_path, 'site.db')
-    if not os.path.exists(sqlite_path):
-        open(sqlite_path, 'a').close()
-        print(f"Created SQLite database at {sqlite_path}")
+    app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///instance/site.db'
+
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
+    'pool_pre_ping': True,  # Verify connections before using them
+    'pool_recycle': 300,    # Recycle connections after 5 minutes
+}
 
 # Initialize the db object with the app
 db.init_app(app)
 
-def init_db():
-    with app.app_context():
-        try:
-            # Create all database tables
-            db.create_all()
-            print("Database tables created successfully")
-            
-            # Create a test user if none exists (optional - remove in production)
-            if not User.query.filter_by(email='test@example.com').first():
-                user = User(username='test', email='test@example.com')
-                user.set_password('test123')
-                db.session.add(user)
-                db.session.commit()
-                print("Created test user")
-                
-        except Exception as e:
-            print(f"Error initializing database: {e}")
-            raise
-
-# Initialize the database when the app starts
-with app.app_context():
-    init_db()
-
+# Initialize Flask-Login
 login_manager = LoginManager(app)
 login_manager.login_view = 'login'
 login_manager.login_message_category = 'info'
 
 in_memory_audio_store = {}
 
+@login_manager.user_loader
+def load_user(user_id):
+    return User.query.get(int(user_id))
+
+# Database initialization - ONLY runs when explicitly called via CLI
 @app.cli.command("init-db")
 def init_db_command():
-    """Clears existing data and creates new tables."""
-    db.create_all()
-    click.echo("Initialized the database.")
+    """Initialize the database tables."""
+    try:
+        db.create_all()
+        print("✓ Database tables created successfully")
+        
+        # Optional: Create test user (remove in production)
+        if not User.query.filter_by(email='test@example.com').first():
+            user = User(username='test', email='test@example.com')
+            user.set_password('test123')
+            db.session.add(user)
+            db.session.commit()
+            print("✓ Created test user")
+    except Exception as e:
+        print(f"✗ Error initializing database: {e}")
+        raise
+
+# Use before_first_request to ensure tables exist
+@app.before_request
+def create_tables():
+    """Ensure database tables exist before handling any request."""
+    if not hasattr(app, '_tables_created'):
+        try:
+            db.create_all()
+            app._tables_created = True
+        except Exception as e:
+            print(f"Warning: Could not create tables: {e}")
 
 def delete_old_history():
     """A function that runs in the background to delete old history."""
     with app.app_context():
-        cutoff_date = datetime.utcnow() - timedelta(days=15)
-        old_records = History.query.filter(History.date_posted < cutoff_date).all()
-        
-        if old_records:
-            print(f"[{datetime.now()}] Deleting {len(old_records)} records older than {cutoff_date}...")
-            for record in old_records:
-                db.session.delete(record)
-            db.session.commit()
-            print("Cleanup complete.")
-        else:
-            print(f"[{datetime.now()}] No old history records to delete.")
+        try:
+            cutoff_date = datetime.utcnow() - timedelta(days=15)
+            old_records = History.query.filter(History.date_posted < cutoff_date).all()
+            
+            if old_records:
+                print(f"[{datetime.now()}] Deleting {len(old_records)} records older than {cutoff_date}...")
+                for record in old_records:
+                    db.session.delete(record)
+                db.session.commit()
+                print("Cleanup complete.")
+            else:
+                print(f"[{datetime.now()}] No old history records to delete.")
+        except Exception as e:
+            print(f"Error during cleanup: {e}")
 
 def process_uploaded_image(file_storage):
     filename = secure_filename(file_storage.filename)
@@ -122,10 +132,6 @@ def process_uploaded_image(file_storage):
     else:
         _, ext = os.path.splitext(filename)
         return file_storage.read(), ext
-
-@login_manager.user_loader
-def load_user(user_id):
-    return User.query.get(int(user_id))
 
 def extract_youtube_id(url: str):
     if not url: return None
