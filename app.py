@@ -37,16 +37,24 @@ app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'a-very-secret-key-for-dev')
 
 # Database Configuration
 database_url = os.getenv('DATABASE_URL')
+
+# Debug: Print what we're getting (remove after fixing)
+print(f"DATABASE_URL found: {bool(database_url)}")
+if database_url:
+    print(f"DATABASE_URL starts with: {database_url[:20]}...")
+
 if database_url:
     # Render uses postgres://, but SQLAlchemy 1.4+ needs postgresql://
     if database_url.startswith('postgres://'):
         database_url = database_url.replace('postgres://', 'postgresql://', 1)
     app.config['SQLALCHEMY_DATABASE_URI'] = database_url
+    print(f"✓ Using PostgreSQL database")
 else:
     # Local SQLite fallback
     instance_path = os.path.join(app.root_path, 'instance')
     os.makedirs(instance_path, exist_ok=True)
     app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///instance/site.db'
+    print(f"⚠ WARNING: Using SQLite fallback - DATABASE_URL not found!")
 
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
@@ -87,16 +95,26 @@ def init_db_command():
         print(f"✗ Error initializing database: {e}")
         raise
 
-# Use before_first_request to ensure tables exist
-@app.before_request
-def create_tables():
-    """Ensure database tables exist before handling any request."""
-    if not hasattr(app, '_tables_created'):
-        try:
+# Ensure tables are created when app starts
+def ensure_tables_exist():
+    """Ensure database tables exist."""
+    try:
+        with app.app_context():
+            # Test connection first
+            db.engine.connect()
+            print("✓ Database connection successful")
+            
+            # Create tables if they don't exist
             db.create_all()
-            app._tables_created = True
-        except Exception as e:
-            print(f"Warning: Could not create tables: {e}")
+            print("✓ Database tables verified/created")
+            
+            return True
+    except Exception as e:
+        print(f"✗ Database error: {e}")
+        return False
+
+# Call this after app configuration
+ensure_tables_exist()
 
 def delete_old_history():
     """A function that runs in the background to delete old history."""
