@@ -17,9 +17,8 @@ from urllib.parse import urlparse, parse_qs
 from werkzeug.utils import secure_filename
 from PIL import Image
 import pillow_heif
-import click  # Flask's command-line interface library
+import click
 
-# Correctly import db, User, and History from the models file
 from models import db, User, History
 from forms import RegistrationForm, LoginForm, UpdateAccountForm
 from utils.gemini_answer import (
@@ -35,19 +34,24 @@ load_dotenv()
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'a-very-secret-key-for-dev')
-# Configure SQLite database
-instance_path = os.path.join(app.root_path, 'instance')
-os.makedirs(instance_path, exist_ok=True)
 
-# Use absolute path for SQLite to avoid issues with working directory
-sqlite_path = os.path.join(instance_path, 'site.db')
-app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{sqlite_path}'
+# CORRECTED: Use DATABASE_URL from environment variable (provided by Render)
+database_url = os.getenv('DATABASE_URL')
+if database_url and database_url.startswith('postgres://'):
+    # Render uses postgres://, but SQLAlchemy needs postgresql://
+    database_url = database_url.replace('postgres://', 'postgresql://', 1)
+
+app.config['SQLALCHEMY_DATABASE_URI'] = database_url or 'sqlite:///instance/site.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
-# Ensure the database file exists
-if not os.path.exists(sqlite_path):
-    open(sqlite_path, 'a').close()
-    print(f"Created SQLite database at {sqlite_path}")
+# Only create instance folder if using SQLite locally
+if not database_url:
+    instance_path = os.path.join(app.root_path, 'instance')
+    os.makedirs(instance_path, exist_ok=True)
+    sqlite_path = os.path.join(instance_path, 'site.db')
+    if not os.path.exists(sqlite_path):
+        open(sqlite_path, 'a').close()
+        print(f"Created SQLite database at {sqlite_path}")
 
 # Initialize the db object with the app
 db.init_app(app)
@@ -59,7 +63,7 @@ def init_db():
             db.create_all()
             print("Database tables created successfully")
             
-            # Create a test user if none exists
+            # Create a test user if none exists (optional - remove in production)
             if not User.query.filter_by(email='test@example.com').first():
                 user = User(username='test', email='test@example.com')
                 user.set_password('test123')
@@ -69,17 +73,7 @@ def init_db():
                 
         except Exception as e:
             print(f"Error initializing database: {e}")
-            # If there's an error, try to create the database file directly
-            try:
-                db_path = os.path.join(instance_path, 'site.db')
-                if not os.path.exists(db_path):
-                    open(db_path, 'a').close()
-                    print(f"Created empty database at {db_path}")
-                    # Try creating tables again
-                    db.create_all()
-            except Exception as e2:
-                print(f"Failed to create database file: {e2}")
-                raise
+            raise
 
 # Initialize the database when the app starts
 with app.app_context():
@@ -91,7 +85,6 @@ login_manager.login_message_category = 'info'
 
 in_memory_audio_store = {}
 
-# --- NEW: DATABASE CREATION COMMAND ---
 @app.cli.command("init-db")
 def init_db_command():
     """Clears existing data and creates new tables."""
@@ -155,7 +148,6 @@ def index():
     user_history = History.query.filter_by(user_id=current_user.id).order_by(History.id.desc()).all()
     return render_template('index.html', history=user_history)
 
-# ... (All other @app.route functions are correct and unchanged) ...
 @app.route('/favicon.ico')
 def favicon():
     return '', 204
@@ -389,7 +381,11 @@ def edit_profile():
         form.email.data = current_user.email
     return render_template('edit_profile.html', title='Edit Profile', form=form)
 
-# --- START THE SCHEDULER ---
+# START THE SCHEDULER
 scheduler = BackgroundScheduler(daemon=True)
 scheduler.add_job(delete_old_history, 'interval', hours=24)
 scheduler.start()
+
+# Required for Render deployment
+if __name__ == '__main__':
+    app.run(debug=False)

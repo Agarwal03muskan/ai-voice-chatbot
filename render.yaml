@@ -1,6 +1,11 @@
+databases:
+  - name: flaskdb
+    databaseName: flaskdb
+    user: flaskdb_user
+
 services:
   - type: web
-    name: your-app-name
+    name: ai-assistant-app
     env: python
     buildCommand: "pip install -r requirements.txt"
     startCommand: "gunicorn app:app"
@@ -8,16 +13,18 @@ services:
       - key: PYTHON_VERSION
         value: 3.9.16
       - key: GOOGLE_API_KEY
-        fromService:
-          type: secret
-          name: google-api-key
+        sync: false  # You'll add this manually in Render dashboard
       - key: SERPAPI_API_KEY
-        fromService:
-          type: secret
-          name: serpapi-api-key
+        sync: false  # You'll add this manually in Render dashboard
+      - key: GIPHY_API_KEY
+        sync: false  # Optional - add if you have it
+      - key: PEXELS_API_KEY
+        sync: false  # Optional - add if you have it
       - key: SECRET_KEY
         generateValue: true
       - key: DATABASE_URL
-        value: "sqlite:///instance/site.db"
+        fromDatabase:
+          name: flaskdb
+          property: connectionString
       - key: PYTHONUNBUFFERED
-        value: "True"
+        value: "true"

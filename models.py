@@ -9,10 +9,11 @@ db = SQLAlchemy()
 
 class User(db.Model, UserMixin):
     id = db.Column(db.Integer, primary_key=True)
-    username = db.Column(db.String(80), unique=True, nullable=False)
-    email = db.Column(db.String(120), unique=True, nullable=False)
-    password_hash = db.Column(db.String(128), nullable=False)
-    history = db.relationship('History', backref='author', lazy=True)
+    username = db.Column(db.String(80), unique=True, nullable=False, index=True)
+    email = db.Column(db.String(120), unique=True, nullable=False, index=True)
+    # FIXED: Increased from 128 to 256 for modern password hashing
+    password_hash = db.Column(db.String(256), nullable=False)
+    history = db.relationship('History', backref='author', lazy=True, cascade='all, delete-orphan')
 
     def set_password(self, password):
         self.password_hash = generate_password_hash(password)
@@ -27,8 +28,8 @@ class History(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     question = db.Column(db.String(1000), nullable=False)
     answer = db.Column(db.Text, nullable=False)
-    date_posted = db.Column(db.DateTime, nullable=False, default=datetime.utcnow) 
-    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    date_posted = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, index=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False, index=True)
 
     def __repr__(self):
         return f"History('{self.question}', '{self.date_posted}')"
