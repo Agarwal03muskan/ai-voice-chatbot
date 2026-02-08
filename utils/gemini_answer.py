@@ -22,7 +22,7 @@ def generate_conversational_answer(query: str, history: list):
         # We now directly configure the API key. This is safe and idempotent.
         genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
         
-        model = genai.GenerativeModel('gemini-1.5-flash')
+        model = genai.GenerativeModel('gemini-pro')
         
         # Start a chat session with the provided history
         chat = model.start_chat(history=history)
@@ -85,7 +85,7 @@ def get_meme_suggestion(image_bytes):
         Example response:
         {"top_text": "WHEN YOU SEE THE WAITER", "bottom_text": "COMING WITH YOUR FOOD"}
         """
-        model = genai.GenerativeModel('gemini-1.5-flash')
+        model = genai.GenerativeModel('gemini-pro')
         response = model.generate_content([prompt, image_part])
         cleaned_response = response.text.strip().replace("```json", "").replace("```", "").strip()
         suggestion = json.loads(cleaned_response)
