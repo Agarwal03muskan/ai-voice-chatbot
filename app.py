@@ -276,29 +276,44 @@ def delete_history(history_id):
 @app.route('/upload-image', methods=['POST'])
 @login_required
 def upload_image_route():
-    if 'image' not in request.files: return jsonify({'error': 'No image file provided'}), 400
+    print("DEBUG: /upload-image called")  # Added debug
+    if 'image' not in request.files: 
+        print("ERROR: No image in request")  # Added debug
+        return jsonify({'error': 'No image file provided'}), 400
     file = request.files['image']
+    print(f"DEBUG: Received file: {file.filename}")  # Added debug
     if file.filename == '': return jsonify({'error': 'No image selected'}), 400
 
     if file:
-        image_bytes, ext = process_uploaded_image(file)
-        if not image_bytes:
-            return jsonify({'error': 'Failed to process image file.'}), 500
+        try:  # Added try-except
+            image_bytes, ext = process_uploaded_image(file)
+            if not image_bytes:
+                print("ERROR: Failed to process image")  # Added debug
+                return jsonify({'error': 'Failed to process image file.'}), 500
 
-        sketch_folder = os.path.join(app.static_folder, 'sketches')
-        os.makedirs(sketch_folder, exist_ok=True)
-        
-        base_name, _ = os.path.splitext(secure_filename(file.filename))
-        unique_filename = f"{current_user.id}_{os.urandom(8).hex()}_{base_name}{ext}"
-        output_path = os.path.join(sketch_folder, unique_filename)
-        
-        success = generate_sketch(image_bytes, output_path)
-        
-        if success:
-            sketch_url = url_for('static', filename=f'sketches/{unique_filename}')
-            return jsonify({'sketch_url': sketch_url})
-        else:
-            return jsonify({'error': 'Failed to generate sketch'}), 500
+            print(f"DEBUG: Image processed, {len(image_bytes)} bytes")  # Added debug
+            sketch_folder = os.path.join(app.static_folder, 'sketches')
+            os.makedirs(sketch_folder, exist_ok=True)
+            
+            base_name, _ = os.path.splitext(secure_filename(file.filename))
+            unique_filename = f"{current_user.id}_{os.urandom(8).hex()}_{base_name}{ext}"
+            output_path = os.path.join(sketch_folder, unique_filename)
+            
+            print(f"DEBUG: Output path: {output_path}")  # Added debug
+            success = generate_sketch(image_bytes, output_path)
+            
+            if success:
+                sketch_url = url_for('static', filename=f'sketches/{unique_filename}')
+                print(f"SUCCESS: Sketch at {sketch_url}")  # Added debug
+                return jsonify({'sketch_url': sketch_url})
+            else:
+                print("ERROR: generate_sketch returned False")  # Added debug
+                return jsonify({'error': 'Failed to generate sketch'}), 500
+        except Exception as e:  # Added exception handling
+            print(f"ERROR: Exception in upload_image_route: {e}")
+            import traceback
+            traceback.print_exc()
+            return jsonify({'error': f'Server error: {str(e)}'}), 500
 
 @app.route('/generate-meme', methods=['POST'])
 @login_required
